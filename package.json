@@ -1,0 +1,52 @@
+{
+  "name": "dsh-trusted-host-proxy-403-fix",
+  "version": "0.1.0",
+  "description": "Fix privileged /api 403 when DeepSeek Harness Web UI is reached through a reverse proxy Host already listed in --trusted-host. Not an authentication layer.",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/trust.test.js && node test/privileged.test.js && node test/handler.test.js && node --import ./test/register-dsh-fakes.js test/apply.test.js",
+    "pack": "npm pack"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "trusted-host",
+    "proxy",
+    "403"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/roojay/dsh-trusted-host-proxy-403-fix.git"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-connection": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-host-apiproxy": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-host-webserver": "0.1.0-rc.6",
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

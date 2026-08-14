@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  ci:
+    name: Test and pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+
+      - name: Check tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          test "$tag" = "$pkg"
+
+      - name: Install peer dependencies
+        run: npm install --ignore-scripts --no-package-lock
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify package entry point
+        run: node --input-type=module --eval "await import('./src/index.js')"
+
+      - name: Pack tarball
+        run: npm pack
+
+      - name: Publish to npm
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          npm install -g npm@latest
+          tarball="$(ls ./*.tgz)"
+          npm publish "$tarball" --access public --provenance
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            ./*.tgz \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

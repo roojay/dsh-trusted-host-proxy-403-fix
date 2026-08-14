@@ -1,0 +1,9 @@
+# Override nothing in dsh-web-app except by inserting this row.
+# trustedHosts must keep the official webRuntime expression so
+# `dsh web --trusted-host <authority>` still feeds the fence.
+- insert:
+    - id: trusted-host-proxy-403-fix
+      name: dsh-trusted-host-proxy-403-fix
+      inject: [webRuntime]
+      config:
+        trustedHosts: !!js ctx.webRuntime.trustedHosts
