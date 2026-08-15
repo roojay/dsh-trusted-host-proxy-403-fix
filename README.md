@@ -52,24 +52,57 @@ The following methods are not part of this list and remain unchanged: `/api/llm.
 
 Release an updated plugin version if the official privileged method list changes.
 
+## Settings persistence for trusted hosts
+
+The 403 fix above unblocks the privileged RPCs, but the browser still treats a
+non-loopback page as untrusted and runs every settings namespace (Language,
+Appearance, Composer Enter, ...) in "memory" persistence mode: choices apply
+for the current page and are silently dropped on reload.
+
+This package's browser half upgrades those controllers to host persistence
+when the privileged RPCs are reachable:
+
+- It patches `SettingsScopeController.prototype.enqueue` so the "memory"
+  short-circuit stops swallowing reads and writes. Without the server half
+  installed (or for an untrusted host) the RPC fails with 403 and the official
+  controllers keep their fail-closed catch-and-ignore behavior, exactly as
+  before — installing this package changes nothing on deployments where it is
+  not installed.
+- It upgrades the controllers reachable through the `locale` and `theme`
+  services in place (persistence is a plain instance field) and triggers a
+  reload, so a saved preference applies on the first paint after the upgrade
+  without waiting for the user to pick it again.
+
+The browser half is a `dsh.client` entry shipped from the same row: no
+additional configuration is needed. `dsh.client.inject` uses the official
+package names (`@deepseek-ai/dsh-client-locale`,
+`@deepseek-ai/dsh-client-ui-theme`, `@deepseek-ai/dsh-client-ui-settings`)
+so the composed graph can `require` `SettingsScopeController`. The enqueue
+patch is pinned to `@deepseek-ai/dsh@0.1.0-rc.6`; re-check the official
+controller if you upgrade dsh.
+
+After installing, the Language (and Appearance, Composer Enter) preferences
+are written to the settings document (e.g. `settings.yaml` under the harness
+home) and survive page reloads and Web process restarts.
+
 ## Install
 
 This package uses ESM and has no `prepare` script, so installing it from Git does not require `allowBuilds`.
 
 ```bash
-dsh plugin --profile web add github:roojay/dsh-trusted-host-proxy-403-fix#v0.1.0
+dsh plugin --profile web add github:roojay/dsh-trusted-host-proxy-403-fix#v0.2.0
 ```
 
 Install from npm:
 
 ```bash
-dsh plugin --profile web add dsh-trusted-host-proxy-403-fix@0.1.0
+dsh plugin --profile web add dsh-trusted-host-proxy-403-fix@0.2.0
 ```
 
 Install from a GitHub Release tarball:
 
 ```bash
-dsh plugin --profile web add https://github.com/roojay/dsh-trusted-host-proxy-403-fix/releases/download/v0.1.0/dsh-trusted-host-proxy-403-fix-0.1.0.tgz
+dsh plugin --profile web add https://github.com/roojay/dsh-trusted-host-proxy-403-fix/releases/download/v0.2.0/dsh-trusted-host-proxy-403-fix-0.2.0.tgz
 ```
 
 Install from a local directory:
@@ -116,7 +149,25 @@ curl -sS -D- -o /tmp/dsh-body -X POST http://127.0.0.1:3080/api/settings.describ
   -d '{}'
 ```
 
+A mismatched Origin must still be 403:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:3080/api/settings.describe \
+  -H 'Host: app.example.com' \
+  -H 'Origin: https://evil.example' \
+  -H 'content-type: application/json' \
+  -d '{}'
+# expect 403
+```
+
 After passing the authentication configured in front of DSH, open Settings → Models in the browser. The privileged method should no longer return 403.
+
+Then confirm settings persistence (the 0.2.0 browser half):
+
+1. Settings → Language: pick `zh` or `en` and save.
+2. Check `$DSH_HOME/settings.yaml` contains `locale.preference` with that value.
+3. Hard-refresh the page. The language choice must still be there.
+4. Restart `dsh web` and open the page again. The choice must still be there.
 
 ## How it works
 

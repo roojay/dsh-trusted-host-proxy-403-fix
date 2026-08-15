@@ -1,11 +1,13 @@
 {
   "name": "dsh-trusted-host-proxy-403-fix",
-  "version": "0.1.0",
-  "description": "Fix privileged /api 403 when DeepSeek Harness Web UI is reached through a reverse proxy Host already listed in --trusted-host. Not an authentication layer.",
+  "version": "0.2.0",
+  "description": "Fix privileged /api 403 when DeepSeek Harness Web UI is reached through a reverse proxy Host already listed in --trusted-host; make settings persistence work for those hosts too. Not an authentication layer.",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "src",
@@ -15,7 +17,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node test/trust.test.js && node test/privileged.test.js && node test/handler.test.js && node --import ./test/register-dsh-fakes.js test/apply.test.js",
+    "test": "node test/trust.test.js && node test/privileged.test.js && node test/handler.test.js && node --import ./test/register-dsh-fakes.js test/apply.test.js && node test/client.test.js",
     "pack": "npm pack"
   },
   "keywords": [
@@ -38,6 +40,14 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-theme",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
     }
   },
   "peerDependencies": {
