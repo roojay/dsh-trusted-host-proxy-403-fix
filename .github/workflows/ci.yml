@@ -53,6 +53,7 @@ jobs:
             const pkg = JSON.parse(readFileSync("./package.json", "utf8"))
             const inject = pkg.dsh && pkg.dsh.client && pkg.dsh.client.inject
             const need = [
+              "@deepseek-ai/dsh-client-connection",
               "@deepseek-ai/dsh-client-locale",
               "@deepseek-ai/dsh-client-ui-theme",
               "@deepseek-ai/dsh-client-ui-settings"

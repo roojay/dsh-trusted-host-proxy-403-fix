@@ -1,38 +1,54 @@
-// Minimal behavioral replica of the official SettingsScopeController
-// (packages/client/ui/settings/src/client/settings-scope.ts, 0.1.0-rc.6)
-// used by the browser-half tests. Only the persistence-relevant surface is
-// modeled: the "memory" short-circuit in enqueue, the tail queue, the
-// disposed gate, and a load() that records what it did.
+// Minimal behavioral replicas of the 0.1.1-rc.2 settings client pieces used
+// by the browser-half tests.
 
 export class SettingsScopeController {
-  constructor(persistence) {
+  constructor(persistence, mirror) {
     this.persistence = persistence
-    this.disposed = false
-    this.tail = Promise.resolve()
-    this.loadCalls = 0
-    this.executed = []
+    this.mirror = mirror
+    this.unsubscribe = undefined
+    this.deriveCalls = 0
+    this.snapshot = {
+      status: persistence === 'host' ? 'loading' : 'unavailable',
+      mode: persistence
+    }
+    this.store = {
+      update: (mutate) => mutate(this.snapshot)
+    }
   }
 
-  enqueue(operation) {
-    if (this.persistence === 'memory' || this.disposed) return Promise.resolve()
-    const task = this.tail.then(async () => {
-      if (this.disposed) return
-      await operation()
-    })
-    this.tail = task.catch(() => {})
-    return task
+  derive() {
+    this.deriveCalls += 1
+    if (this.mirror.view !== undefined) this.snapshot.status = 'ready'
+  }
+}
+
+export class SettingsDescribeMirror {
+  constructor(persistence) {
+    this.persistence = persistence
+    this.loadCalls = 0
+    this.view = undefined
+    this.listeners = new Set()
   }
 
   load() {
     this.loadCalls += 1
-    return this.enqueue(async () => {
-      this.executed.push('load')
-    })
+    if (this.persistence === 'host') this.view = { namespaces: [] }
+    for (const listener of this.listeners) listener()
+    return Promise.resolve()
   }
 
-  set(field, value) {
-    return this.enqueue(async () => {
-      this.executed.push('set:' + field + '=' + value)
-    })
+  subscribe(listener) {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+}
+
+export class SettingsScopeBinder {
+  constructor(mirror) {
+    this.mirror = mirror
+  }
+
+  describe() {
+    return this.mirror
   }
 }

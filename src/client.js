@@ -1,78 +1,66 @@
 // Browser half of dsh-trusted-host-proxy-403-fix.
 //
-// The server half lets requests from --trusted-host authorities reach the
-// privileged /api methods (settings.*, credentials.*, ...). The browser half
-// fixes the OTHER half of the same deployment: outside the loopback the
-// official SettingsScopeController runs in "memory" persistence mode and
-// silently drops every settings write, which is why the Language (and
-// Appearance, Composer Enter, ...) choices never survive a page reload when
-// the UI is reached through a proxy host even though the server half already
-// accepts the RPCs.
-//
-// This bundle upgrades those controllers to "host" persistence:
-//   1. It patches SettingsScopeController.prototype.enqueue so the "memory"
-//      short-circuit stops swallowing reads/writes. The settings RPCs are
-//      loopback-only upstream; this plugin's server half is what makes them
-//      reachable for trusted hosts, so the patch only changes behavior where
-//      the server half is installed. Without it (or for an untrusted host)
-//      the RPC fails with 403 and the official controllers keep their
-//      fail-closed behavior (catch-and-ignore), exactly as before.
-//   2. It upgrades the controllers it can reach through public services
-//      (locale.host, theme.host) in place — persistence is a plain instance
-//      field — and triggers load() so an already-saved preference applies on
-//      the first paint without waiting for the user to pick it again.
+// DSH 0.1.1-rc.2 centralizes settings reads in a SettingsDescribeMirror and
+// deliberately leaves that mirror unavailable when connection.isLoopback is
+// false. This package's server half already admits privileged RPCs only for
+// authorities explicitly listed in --trusted-host, with the official
+// Host/Origin request fence in front of them. The browser half therefore
+// upgrades that authenticated reverse-proxy deployment to the same host-backed
+// settings mode as a loopback page.
 window.__ModuleLoader__.load({
   id: 'dsh-trusted-host-proxy-403-fix',
-  factory: function (require) {
+  factory: function () {
     var module = { exports: {} }
     var exports = module.exports
 
-    function patchEnqueue() {
-      try {
-        var uiSettings = require('@deepseek-ai/dsh-client-ui-settings')
-        var Controller = uiSettings.SettingsScopeController
-        if (!Controller || !Controller.prototype) return false
-        if (typeof Controller.prototype.enqueue !== 'function') return false
-        if (Controller.prototype.enqueue.__dshTrustedHostPatched) return true
-        Controller.prototype.enqueue = function (operation) {
-          // Same queued-operation chain as the official implementation, minus
-          // the "memory" persistence short-circuit that drops every operation.
-          if (this.disposed) return Promise.resolve()
-          var self = this
-          var task = this.tail.then(async function () {
-            if (self.disposed) return
-            await operation()
-          })
-          this.tail = task.catch(function () {})
-          return task
-        }
-        Controller.prototype.enqueue.__dshTrustedHostPatched = true
-        return true
-      } catch (err) {
-        // The ui-settings bundle is not reachable through the module table
-        // (should not happen in the web profile): the per-service upgrade
-        // below still works, so fail soft instead of breaking boot.
-        return false
-      }
-    }
-
-    function upgrade(service) {
+    function upgradeController(service) {
       if (!service) return
       var host = service.host
-      if (!host || typeof host.load !== 'function') return
-      if (host.persistence === 'memory') host.persistence = 'host'
-      host.load()
+      if (!host || host.persistence !== 'memory') return
+      host.persistence = 'host'
+      if (host.store && typeof host.store.update === 'function') {
+        host.store.update(function (draft) {
+          draft.mode = 'host'
+          if (draft.status === 'unavailable') draft.status = 'loading'
+        })
+      }
+      if (
+        host.unsubscribe === undefined &&
+        host.mirror &&
+        typeof host.mirror.subscribe === 'function' &&
+        typeof host.derive === 'function'
+      ) {
+        host.unsubscribe = host.mirror.subscribe(function () {
+          host.derive()
+        })
+      }
+      if (typeof host.derive === 'function') host.derive()
+    }
+
+    function upgradeMirror(settingsScope) {
+      if (!settingsScope || typeof settingsScope.describe !== 'function') return
+      var mirror = settingsScope.describe()
+      if (!mirror || typeof mirror.load !== 'function') return
+      if (mirror.persistence === 'memory') mirror.persistence = 'host'
+      // load(), rather than ensure(), also recovers a mirror whose initial
+      // non-loopback state is the terminal "unavailable" state.
+      mirror.load()
     }
 
     function apply(ctx) {
-      patchEnqueue()
-      upgrade(ctx.get('locale'))
-      upgrade(ctx.get('theme'))
+      var connection = ctx.get('connection')
+      if (connection) connection.isLoopback = true
+
+      // These scopes are created before this plugin applies. Future scopes see
+      // connection.isLoopback=true and are constructed in host mode directly.
+      upgradeController(ctx.get('locale'))
+      upgradeController(ctx.get('theme'))
+      // Subscribe existing scopes before the mirror publishes its first view.
+      upgradeMirror(ctx.get('settingsScope'))
     }
 
     exports.apply = apply
-    // Cordis service names. Package graph uses dsh.client.inject in package.json.
-    exports.inject = ['locale', 'theme']
+    exports.inject = ['connection', 'settingsScope', 'locale', 'theme']
     return module.exports
   }
 })

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { SettingsScopeController } from './fakes/dsh-client-ui-settings.js'
+import {
+  SettingsDescribeMirror,
+  SettingsScopeBinder,
+  SettingsScopeController
+} from './fakes/dsh-client-ui-settings.js'
 
-// Load the browser bundle exactly the way the shell does: the classic script
-// calls window.__ModuleLoader__.load({ id, factory }) and the module table
-// materializes it later through require(). The test captures the entry, then
-// evaluates the factory with a controllable require().
 let captured
 globalThis.window = {
   __ModuleLoader__: {
@@ -20,33 +20,22 @@ await import(bundleUrl)
 assert.ok(captured, 'window.__ModuleLoader__.load was called')
 assert.equal(captured.id, 'dsh-trusted-host-proxy-403-fix')
 
-{
-  const pkg = JSON.parse(
-    await (await import('node:fs/promises')).readFile(
-      new URL('../package.json', import.meta.url),
-      'utf8'
-    )
+const pkg = JSON.parse(
+  await (await import('node:fs/promises')).readFile(
+    new URL('../package.json', import.meta.url),
+    'utf8'
   )
-  const inject = pkg.dsh.client.inject
-  assert.ok(inject.includes('@deepseek-ai/dsh-client-locale'))
-  assert.ok(inject.includes('@deepseek-ai/dsh-client-ui-theme'))
-  assert.ok(inject.includes('@deepseek-ai/dsh-client-ui-settings'))
-  assert.equal(pkg.exports['./client'], './src/client.js')
+)
+const packageInject = pkg.dsh.client.inject
+for (const id of [
+  '@deepseek-ai/dsh-client-connection',
+  '@deepseek-ai/dsh-client-locale',
+  '@deepseek-ai/dsh-client-ui-theme',
+  '@deepseek-ai/dsh-client-ui-settings'
+]) {
+  assert.ok(packageInject.includes(id), 'missing package inject ' + id)
 }
-
-function makeRequire(modules) {
-  return function requireFn(spec) {
-    const value = modules[spec]
-    if (value === undefined) throw new Error('no such module: ' + spec)
-    return value
-  }
-}
-
-// --- fake cordis context ----------------------------------------------------
-
-function makeService(host) {
-  return { host }
-}
+assert.equal(pkg.exports['./client'], './src/client.js')
 
 function makeCtx(services) {
   return {
@@ -56,122 +45,67 @@ function makeCtx(services) {
   }
 }
 
-// --- scenario 1: full bundle available -------------------------------------
-
+// A reverse-proxy page starts non-loopback with an unavailable shared mirror.
+// Applying the plugin upgrades the connection, mirror, and scopes that already
+// existed before this client entry ran.
 {
-  const modules = {
-    '@deepseek-ai/dsh-client-ui-settings': {
-      SettingsScopeController
-    }
-  }
-  const entry = captured.factory(makeRequire(modules))
-  assert.deepEqual(entry.inject, ['locale', 'theme'])
+  const entry = captured.factory()
+  assert.deepEqual(entry.inject, [
+    'connection',
+    'settingsScope',
+    'locale',
+    'theme'
+  ])
 
-  const localeHost = new SettingsScopeController('memory')
-  const themeHost = new SettingsScopeController('memory')
-  const ctx = makeCtx({
-    locale: makeService(localeHost),
-    theme: makeService(themeHost)
-  })
+  const connection = { isLoopback: false }
+  const mirror = new SettingsDescribeMirror('memory')
+  const localeHost = new SettingsScopeController('memory', mirror)
+  const themeHost = new SettingsScopeController('memory', mirror)
+  entry.apply(makeCtx({
+    connection,
+    settingsScope: new SettingsScopeBinder(mirror),
+    locale: { host: localeHost },
+    theme: { host: themeHost }
+  }))
 
-  entry.apply(ctx)
-
-  // Per-service upgrade: persistence flipped and load() actually ran the
-  // queued operation (the enqueue patch removed the memory short-circuit).
+  assert.equal(connection.isLoopback, true)
+  assert.equal(mirror.persistence, 'host')
+  assert.equal(mirror.loadCalls, 1)
+  assert.deepEqual(mirror.view, { namespaces: [] })
   assert.equal(localeHost.persistence, 'host')
   assert.equal(themeHost.persistence, 'host')
-  assert.ok(localeHost.loadCalls >= 1)
-  assert.ok(themeHost.loadCalls >= 1)
-  await Promise.resolve()
-  await Promise.resolve()
-  assert.deepEqual(localeHost.executed, ['load'])
-  assert.deepEqual(themeHost.executed, ['load'])
-
-  // Prototype patch covers controllers that were NOT reachable through a
-  // service (ui-conversation, ui-settings-plugins, ...), including ones
-  // constructed after apply ran.
-  const lateHost = new SettingsScopeController('memory')
-  await lateHost.set('preference', 'zh')
-  await Promise.resolve()
-  await Promise.resolve()
-  assert.deepEqual(lateHost.executed, ['set:preference=zh'])
-  assert.equal(lateHost.persistence, 'memory') // field untouched; enqueue no longer gates on it
+  assert.equal(localeHost.snapshot.mode, 'host')
+  assert.equal(themeHost.snapshot.mode, 'host')
+  assert.equal(localeHost.snapshot.status, 'ready')
+  assert.equal(themeHost.snapshot.status, 'ready')
+  assert.equal(mirror.listeners.size, 2)
 }
 
-// --- scenario 2: prototype patch is idempotent -----------------------------
-
+// Re-applying is harmless and refreshes the currently held mirror/scopes.
 {
-  const modules = {
-    '@deepseek-ai/dsh-client-ui-settings': {
-      SettingsScopeController
-    }
-  }
-  const entry = captured.factory(makeRequire(modules))
-  const host = new SettingsScopeController('memory')
-  entry.apply(makeCtx({ locale: makeService(host) }))
-  // A second apply must not re-wrap the prototype; repeated upgrades only
-  // trigger an extra (harmless) load.
-  assert.equal(
-    SettingsScopeController.prototype.enqueue.__dshTrustedHostPatched,
-    true
-  )
-  entry.apply(makeCtx({ locale: makeService(host) }))
-  await host.set('preference', 'en')
-  await Promise.resolve()
-  await Promise.resolve()
-  assert.deepEqual(host.executed, ['load', 'load', 'set:preference=en'])
+  const entry = captured.factory()
+  const connection = { isLoopback: true }
+  const mirror = new SettingsDescribeMirror('host')
+  const localeHost = new SettingsScopeController('host', mirror)
+  const ctx = makeCtx({
+    connection,
+    settingsScope: new SettingsScopeBinder(mirror),
+    locale: { host: localeHost }
+  })
+  entry.apply(ctx)
+  entry.apply(ctx)
+  assert.equal(connection.isLoopback, true)
+  assert.equal(mirror.loadCalls, 2)
+  assert.equal(localeHost.deriveCalls, 0)
 }
 
-// --- scenario 3: disposed controllers stay inert ---------------------------
-
+// Missing optional surfaces fail soft; the connection upgrade still occurs.
 {
-  const modules = {
-    '@deepseek-ai/dsh-client-ui-settings': {
-      SettingsScopeController
-    }
-  }
-  const entry = captured.factory(makeRequire(modules))
-  const host = new SettingsScopeController('memory')
-  host.disposed = true
-  entry.apply(makeCtx({ locale: makeService(host) }))
-  const before = host.executed.length
-  await host.set('preference', 'zh')
-  await Promise.resolve()
-  assert.equal(host.executed.length, before)
-}
-
-// --- scenario 4: ui-settings bundle unreachable (degraded) ------------------
-
-{
-  // No '@deepseek-ai/dsh-client-ui-settings' in the module table: apply must
-  // not throw, and the direct per-service upgrade must still work because the
-  // persistence field is flipped before load().
-  const entry = captured.factory(makeRequire({}))
-  const host = new SettingsScopeController('memory')
-  entry.apply(makeCtx({ locale: makeService(host) }))
-  assert.equal(host.persistence, 'host')
-  assert.ok(host.loadCalls >= 1)
-  await Promise.resolve()
-  await Promise.resolve()
-  assert.deepEqual(host.executed, ['load'])
-}
-
-// --- scenario 5: services without a host are ignored -----------------------
-
-{
-  const entry = captured.factory(makeRequire({}))
-  entry.apply(makeCtx({ locale: {}, theme: undefined }))
+  const entry = captured.factory()
+  const connection = { isLoopback: false }
+  entry.apply(makeCtx({ connection }))
+  assert.equal(connection.isLoopback, true)
   entry.apply(makeCtx({}))
-}
-
-// --- scenario 6: host-mode services are left untouched ---------------------
-
-{
-  const entry = captured.factory(makeRequire({}))
-  const host = new SettingsScopeController('host')
-  entry.apply(makeCtx({ locale: makeService(host) }))
-  assert.equal(host.persistence, 'host')
-  assert.ok(host.loadCalls >= 1)
 }
 
 console.log('client.test.js: all assertions passed')

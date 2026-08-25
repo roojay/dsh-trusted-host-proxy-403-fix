@@ -8,7 +8,7 @@ export const name = 'dsh-trusted-host-proxy-403-fix'
 export const inject = ['webServer', 'connection']
 export { Config }
 
-const DEFAULT_MAX_REQUEST_BODY_BYTES = 160 * 1024 * 1024
+const DEFAULT_MAX_REQUEST_BODY_BYTES = 300 * 1024 * 1024
 
 export function apply(ctx, config) {
   const trustedHosts = config && config.trustedHosts ? config.trustedHosts : []

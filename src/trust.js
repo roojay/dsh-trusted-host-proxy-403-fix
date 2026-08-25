@@ -1,6 +1,6 @@
 // Host / Origin / Fetch-Metadata fence.
 // Logic follows MIT-licensed @deepseek-ai/dsh-client-connection
-// packages/client/connection/src/api-request-trust.ts (0.1.0-rc.6).
+// packages/client/connection/src/api-request-trust.ts (0.1.1-rc.2).
 
 function header(headers, name) {
   if (headers && typeof headers.get === 'function') {

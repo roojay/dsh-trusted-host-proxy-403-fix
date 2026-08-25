@@ -36,9 +36,16 @@ for (let i = 0; i < FROZEN.length; i++) {
 
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 assert.equal(pkg.peerDependencies['@deepseek-ai/cordis'], '^4.0.1')
-assert.equal(pkg.peerDependencies['@deepseek-ai/dsh-client-connection'], '0.1.0-rc.6')
-assert.equal(pkg.peerDependencies['@deepseek-ai/dsh-host-apiproxy'], '0.1.0-rc.6')
-assert.equal(pkg.peerDependencies['@deepseek-ai/dsh-host-webserver'], '0.1.0-rc.6')
+for (const name of [
+  '@deepseek-ai/dsh-client-connection',
+  '@deepseek-ai/dsh-client-locale',
+  '@deepseek-ai/dsh-client-ui-settings',
+  '@deepseek-ai/dsh-client-ui-theme',
+  '@deepseek-ai/dsh-host-apiproxy',
+  '@deepseek-ai/dsh-host-webserver'
+]) {
+  assert.equal(pkg.peerDependencies[name], '0.1.1-rc.2')
+}
 assert.equal(pkg.peerDependencies['@deepseek-ai/schemastery'], undefined)
 assert.ok(pkg.files.includes('src'))
 assert.ok(!pkg.files.includes('official.js'))

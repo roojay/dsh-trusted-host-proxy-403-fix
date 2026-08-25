@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-A standalone [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin bundle for the `web` profile. Compatible with `@deepseek-ai/dsh@0.1.0-rc.6`.
+A standalone [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin bundle for the `web` profile. Version 0.3.0 is pinned to `@deepseek-ai/dsh@0.1.1-rc.2`.
 
 `dsh web` (`dsh --profile web`) listens on the loopback interface. You can repeat `--trusted-host` to add [trusted host entries](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/connection/README.md) that pass the `/api` [browser request security checks](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/connection/README.md#api-browser-trust-fence). Requests to non-privileged API methods then succeed when their `Host` matches one of those entries.
 
@@ -28,7 +28,7 @@ Install this plugin only when those hosts are already protected by authenticatio
 
 ## Privileged methods
 
-This is the complete official `PRIVILEGED_METHODS` list in `@deepseek-ai/dsh-client-connection` 0.1.0-rc.6. All other `/api` routes keep the default `dsh-web-app` behavior.
+This is the complete official `PRIVILEGED_METHODS` list in `@deepseek-ai/dsh-client-connection` 0.1.1-rc.2. All other `/api` routes keep the default `dsh-web-app` behavior.
 
 | Method | Purpose |
 | --- | --- |
@@ -54,32 +54,30 @@ Release an updated plugin version if the official privileged method list changes
 
 ## Settings persistence for trusted hosts
 
-The 403 fix above unblocks the privileged RPCs, but the browser still treats a
-non-loopback page as untrusted and runs every settings namespace (Language,
-Appearance, Composer Enter, ...) in "memory" persistence mode: choices apply
-for the current page and are silently dropped on reload.
+The 403 fix above unblocks the privileged RPCs, but DSH 0.1.1-rc.2 still treats
+a non-loopback page as untrusted. Its shared settings mirror starts in the
+terminal `unavailable` state, so Settings → Models reports `settings are
+unavailable in this browser`; per-namespace settings scopes also use "memory"
+persistence and silently drop choices on reload.
 
-This package's browser half upgrades those controllers to host persistence
-when the privileged RPCs are reachable:
+This package's browser half upgrades the authenticated trusted-host deployment
+to host persistence:
 
-- It patches `SettingsScopeController.prototype.enqueue` so the "memory"
-  short-circuit stops swallowing reads and writes. Without the server half
-  installed (or for an untrusted host) the RPC fails with 403 and the official
-  controllers keep their fail-closed catch-and-ignore behavior, exactly as
-  before — installing this package changes nothing on deployments where it is
-  not installed.
+- It promotes the shared `connection.isLoopback` capability for the client
+  graph loaded from this same trusted-host plugin row. Future settings scopes
+  are consequently created in host mode.
+- It upgrades the shared settings describe mirror from memory to host mode and
+  calls `load()` so an already-terminal `unavailable` mirror performs the
+  privileged read and populates Settings → Models.
 - It upgrades the controllers reachable through the `locale` and `theme`
   services in place (persistence is a plain instance field) and triggers a
   reload, so a saved preference applies on the first paint after the upgrade
   without waiting for the user to pick it again.
 
 The browser half is a `dsh.client` entry shipped from the same row: no
-additional configuration is needed. `dsh.client.inject` uses the official
-package names (`@deepseek-ai/dsh-client-locale`,
-`@deepseek-ai/dsh-client-ui-theme`, `@deepseek-ai/dsh-client-ui-settings`)
-so the composed graph can `require` `SettingsScopeController`. The enqueue
-patch is pinned to `@deepseek-ai/dsh@0.1.0-rc.6`; re-check the official
-controller if you upgrade dsh.
+additional configuration is needed. Its DSH package injections and peer
+dependencies are all pinned to `0.1.1-rc.2`; re-check the official connection,
+mirror, and scope implementations before upgrading DSH.
 
 After installing, the Language (and Appearance, Composer Enter) preferences
 are written to the settings document (e.g. `settings.yaml` under the harness
@@ -90,19 +88,19 @@ home) and survive page reloads and Web process restarts.
 This package uses ESM and has no `prepare` script, so installing it from Git does not require `allowBuilds`.
 
 ```bash
-dsh plugin --profile web add github:roojay/dsh-trusted-host-proxy-403-fix#v0.2.0
+dsh plugin --profile web add github:roojay/dsh-trusted-host-proxy-403-fix#v0.3.0
 ```
 
 Install from npm:
 
 ```bash
-dsh plugin --profile web add dsh-trusted-host-proxy-403-fix@0.2.0
+dsh plugin --profile web add dsh-trusted-host-proxy-403-fix@0.3.0
 ```
 
 Install from a GitHub Release tarball:
 
 ```bash
-dsh plugin --profile web add https://github.com/roojay/dsh-trusted-host-proxy-403-fix/releases/download/v0.2.0/dsh-trusted-host-proxy-403-fix-0.2.0.tgz
+dsh plugin --profile web add https://github.com/roojay/dsh-trusted-host-proxy-403-fix/releases/download/v0.3.0/dsh-trusted-host-proxy-403-fix-0.3.0.tgz
 ```
 
 Install from a local directory:
@@ -162,7 +160,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:3080/api/sett
 
 After passing the authentication configured in front of DSH, open Settings → Models in the browser. The privileged method should no longer return 403.
 
-Then confirm settings persistence (the 0.2.0 browser half):
+Then confirm settings persistence (the 0.3.0 browser half):
 
 1. Settings → Language: pick `zh` or `en` and save.
 2. Check `$DSH_HOME/settings.yaml` contains `locale.preference` with that value.
@@ -173,7 +171,7 @@ Then confirm settings persistence (the 0.2.0 browser half):
 
 [`dsh-host-webserver`](https://github.com/deepseek-ai/deepseek-harness) checks exact routes before prefix routes. This plugin registers one exact `/api/<method>` route for every privileged method, so those requests bypass the empty `trustedHosts` check in the official `/api` handler.
 
-The plugin is pinned to `@deepseek-ai/dsh@0.1.0-rc.6`. It depends on the official `connection` service and creates its Fetch handler with `createSharedFetchHandler`, so its privileged routes are removed whenever the official `/api` route is removed. `API_PATH` and `Config` come from official exports. The request security logic and privileged method list are copied locally because rc.6 does not export them. The request body limit matches the official 160 MiB default, and errors propagate to the official WebServer error handler.
+The plugin is pinned to `@deepseek-ai/dsh@0.1.1-rc.2`. It depends on the official `connection` service and creates its Fetch handler with `createSharedFetchHandler`, so its privileged routes are removed whenever the official `/api` route is removed. `API_PATH` and `Config` come from official exports. The request security logic and privileged method list are copied locally because rc.2 does not export them. The request body limit matches the official 300 MiB default, and errors propagate to the official WebServer error handler.
 
 ## Develop
 

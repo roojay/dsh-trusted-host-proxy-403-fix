@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-适用于 `web` profile 的独立 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件，兼容 `@deepseek-ai/dsh@0.1.0-rc.6`。
+适用于 `web` profile 的独立 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件。`0.3.0` 精确锁定 `@deepseek-ai/dsh@0.1.1-rc.2`。
 
 `dsh web`（即 `dsh --profile web`）监听本机回环地址。可以多次传入 `--trusted-host`，添加 `/api` [浏览器请求安全检查](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/connection/README.zh.md#api-%E6%B5%8F%E8%A7%88%E5%99%A8%E4%BF%A1%E4%BB%BB%E6%A0%85%E6%A0%8F)所接受的[受信任主机](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/connection/README.zh.md)。请求中的 `Host` 与其中一项匹配时，非特权 API 方法即可正常访问。
 
@@ -16,14 +16,15 @@ transport failure for /api/settings.describe: HTTP 403
 
 ## 受信任主机下的设置持久化
 
-上面的 403 修复打通了特权 RPC，但浏览器仍会把非回环页面视为不受信任，让每个设置命名空间（语言、外观、Composer Enter 等）运行在 "memory" 持久化模式下：选择只在当前页面生效，刷新后静默丢失。
+上面的 403 修复打通了特权 RPC，但 DSH `0.1.1-rc.2` 仍会把非回环页面视为不受信任。共享 settings mirror 会直接进入终态 `unavailable`，使设置 → 模型显示 `settings are unavailable in this browser`；各设置命名空间（语言、外观、Composer Enter 等）也运行在 "memory" 持久化模式，选择刷新后静默丢失。
 
-本包浏览器半区会在特权 RPC 可达时把这些控制器升级为 host 持久化：
+本包浏览器半区会把已经过身份认证的 trusted-host 部署升级为 host 持久化：
 
-- 它补丁 `SettingsScopeController.prototype.enqueue`，让 "memory" 短路不再吞掉读写。未安装服务端半区（或主机不受信任）时 RPC 会以 403 失败，官方控制器保持原有的失败关闭（捕获并忽略）行为——不安装本包的部署行为完全不变。
+- 它为同一个 trusted-host 插件行加载的客户端图提升 `connection.isLoopback` 能力，使后续 settings scope 直接以 host 模式创建。
+- 它把共享 settings describe mirror 从 memory 升级为 host，并显式调用 `load()`，使已经进入 `unavailable` 终态的 mirror 重新执行特权读取并填充设置 → 模型。
 - 它把通过 `locale` 与 `theme` 服务可达的控制器就地升级（persistence 是普通实例字段），并触发一次重新读取，使已保存的偏好升级后首屏即生效，无需用户重新选择。
 
-浏览器半区是同一行里的 `dsh.client` 条目：无需额外配置。`dsh.client.inject` 使用官方包名（`@deepseek-ai/dsh-client-locale`、`@deepseek-ai/dsh-client-ui-theme`、`@deepseek-ai/dsh-client-ui-settings`），以保证构图里能 `require` 到 `SettingsScopeController`。enqueue 补丁对照 `@deepseek-ai/dsh@0.1.0-rc.6`；升级 dsh 后必须重核官方控制器实现。
+浏览器半区是同一行里的 `dsh.client` 条目：无需额外配置。所有 DSH 包注入与 peer 依赖均精确锁定 `0.1.1-rc.2`；升级 DSH 前必须重新核对官方 connection、mirror 与 scope 实现。
 
 安装后，语言（以及外观、Composer Enter）偏好会写入设置文档（如 harness 家目录下的 `settings.yaml`），页面刷新与 Web 进程重启后依然保留。
 
@@ -41,7 +42,7 @@ transport failure for /api/settings.describe: HTTP 403
 
 ## 特权方法
 
-以下是 `@deepseek-ai/dsh-client-connection` 0.1.0-rc.6 中完整的官方 `PRIVILEGED_METHODS` 列表。其他 `/api` 路由保持 `dsh-web-app` 的默认行为。
+以下是 `@deepseek-ai/dsh-client-connection` 0.1.1-rc.2 中完整的官方 `PRIVILEGED_METHODS` 列表。其他 `/api` 路由保持 `dsh-web-app` 的默认行为。
 
 | 方法 | 用途 |
 | --- | --- |
@@ -70,19 +71,19 @@ transport failure for /api/settings.describe: HTTP 403
 本插件使用 ESM，且没有 `prepare` 脚本，因此从 Git 安装进 profile 时不需要配置 `allowBuilds`。
 
 ```bash
-dsh plugin --profile web add github:roojay/dsh-trusted-host-proxy-403-fix#v0.2.0
+dsh plugin --profile web add github:roojay/dsh-trusted-host-proxy-403-fix#v0.3.0
 ```
 
 从 npm 安装：
 
 ```bash
-dsh plugin --profile web add dsh-trusted-host-proxy-403-fix@0.2.0
+dsh plugin --profile web add dsh-trusted-host-proxy-403-fix@0.3.0
 ```
 
 从 GitHub Release 的 tarball 安装：
 
 ```bash
-dsh plugin --profile web add https://github.com/roojay/dsh-trusted-host-proxy-403-fix/releases/download/v0.2.0/dsh-trusted-host-proxy-403-fix-0.2.0.tgz
+dsh plugin --profile web add https://github.com/roojay/dsh-trusted-host-proxy-403-fix/releases/download/v0.3.0/dsh-trusted-host-proxy-403-fix-0.3.0.tgz
 ```
 
 从本地目录安装：
@@ -142,7 +143,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:3080/api/sett
 
 通过 DSH 前置的身份认证后，在浏览器中打开设置 → 模型。此时特权方法不应再返回 403。
 
-再确认设置能持久化（0.2.0 浏览器半区）：
+再确认设置能持久化（0.3.0 浏览器半区）：
 
 1. 设置 → 语言：选 `zh` 或 `en` 并保存。
 2. 查看 `$DSH_HOME/settings.yaml` 里有对应的 `locale.preference`。
@@ -153,7 +154,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:3080/api/sett
 
 [`dsh-host-webserver`](https://github.com/deepseek-ai/deepseek-harness) 会先匹配精确路由，再匹配前缀路由。本插件为每个特权方法注册一条精确匹配的 `/api/<method>` 路由，使这些请求绕过官方 `/api` 处理器中空的 `trustedHosts` 检查。
 
-本插件锁定 `@deepseek-ai/dsh@0.1.0-rc.6`。插件注入官方 `connection` 服务，特权路由会随该服务一起卸掉；`createSharedFetchHandler` 只负责接上官方 Fetch 分发。`API_PATH` 和 `Config` 直接使用官方导出。由于 rc.6 未导出请求安全检查和特权方法列表，本插件在本地保留了相应实现。请求体大小上限与官方默认值 160 MiB 一致，处理过程中的异常交由官方 WebServer 统一处理。
+本插件锁定 `@deepseek-ai/dsh@0.1.1-rc.2`。插件注入官方 `connection` 服务，特权路由会随该服务一起卸掉；`createSharedFetchHandler` 只负责接上官方 Fetch 分发。`API_PATH` 和 `Config` 直接使用官方导出。由于 rc.2 未导出请求安全检查和特权方法列表，本插件在本地保留了相应实现。请求体大小上限与官方默认值 300 MiB 一致，处理过程中的异常交由官方 WebServer 统一处理。
 
 ## 开发
 
