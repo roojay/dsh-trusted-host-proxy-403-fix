@@ -46,9 +46,15 @@ export class SettingsDescribeMirror {
 export class SettingsScopeBinder {
   constructor(mirror) {
     this.mirror = mirror
+    // A non-loopback page freezes "memory" into every scope it binds.
+    this.persistence = 'memory'
   }
 
   describe() {
     return this.mirror
+  }
+
+  bind(spec) {
+    return new SettingsScopeController(this.persistence, this.mirror)
   }
 }

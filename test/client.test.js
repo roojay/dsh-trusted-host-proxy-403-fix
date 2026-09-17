@@ -158,6 +158,40 @@ function makeCtx(services) {
   assert.equal(action.props.children, '查看生效配置')
 }
 
+// Scopes bound after apply() (the plugin-config cards) are constructed in
+// memory mode on a non-loopback page. The bind() wrapper upgrades each new
+// scope controller in place, so it derives and reaches "ready".
+{
+  const entry = loadEntry()
+  const connection = { isLoopback: false }
+  const remote = { $host: { isLoopback: false } }
+  const mirror = new SettingsDescribeMirror('memory')
+  const binder = new SettingsScopeBinder(mirror)
+  const ctx = makeCtx({ connection, remote, settingsScope: binder })
+  entry.apply(ctx)
+
+  // A card binds its scope after the plugin applied.
+  const cardScope = binder.bind({ namespace: 'shell' })
+  assert.equal(cardScope.persistence, 'host')
+  assert.equal(cardScope.snapshot.mode, 'host')
+  assert.equal(cardScope.snapshot.status, 'ready')
+  assert.equal(typeof cardScope.unsubscribe, 'function')
+  assert.equal(mirror.listeners.size, 1)
+
+  // A second bind is upgraded too; the wrapper is idempotent per controller.
+  const otherScope = binder.bind({ namespace: 'agent-loop' })
+  assert.equal(otherScope.persistence, 'host')
+  assert.equal(otherScope.snapshot.status, 'ready')
+  assert.equal(mirror.listeners.size, 2)
+
+  // Re-applying does not double-wrap bind().
+  entry.apply(ctx)
+  const again = binder.bind({ namespace: 'web-search-deepseek' })
+  assert.equal(again.persistence, 'host')
+  assert.equal(again.snapshot.status, 'ready')
+  assert.equal(mirror.listeners.size, 3)
+}
+
 // Re-applying is harmless and refreshes the currently held mirror/scopes.
 {
   const entry = loadEntry()

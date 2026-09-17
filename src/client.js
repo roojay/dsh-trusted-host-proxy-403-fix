@@ -323,6 +323,49 @@ window.__ModuleLoader__.load({
       mirror.load()
     }
 
+    // Same upgrade as upgradeController, applied directly to a scope controller
+    // (the object SettingsScopeBinder.bind returns): its persistence is frozen
+    // at construction, so a non-loopback page never subscribes to the mirror and
+    // derive() — the only path to "ready" — never runs.
+    function upgradeScopeController(controller) {
+      if (!controller || controller.persistence !== 'memory') return
+      controller.persistence = 'host'
+      if (controller.store && typeof controller.store.update === 'function') {
+        controller.store.update(function (draft) {
+          draft.mode = 'host'
+          if (draft.status === 'unavailable') draft.status = 'loading'
+        })
+      }
+      if (
+        controller.unsubscribe === undefined &&
+        controller.mirror &&
+        typeof controller.mirror.subscribe === 'function' &&
+        typeof controller.derive === 'function'
+      ) {
+        controller.unsubscribe = controller.mirror.subscribe(function () {
+          controller.derive()
+        })
+      }
+      if (typeof controller.derive === 'function') controller.derive()
+    }
+
+    // Plan A: wrap the binder's bind() so every scope created after this plugin
+    // applies is upgraded in place. dsh-client-ui-settings-plugins (the four
+    // plugin-configuration cards) applies after this plugin, so its binds are
+    // caught here; later namespaces are covered automatically. The guard keeps
+    // a hot-reload re-apply from stacking wrappers.
+    function interceptBind(settingsScope) {
+      if (!settingsScope || typeof settingsScope.bind !== 'function') return
+      if (settingsScope.__bindUpgradedBy403Fix) return
+      var rawBind = settingsScope.bind
+      settingsScope.__bindUpgradedBy403Fix = true
+      settingsScope.bind = function (spec) {
+        var controller = rawBind.call(this, spec)
+        upgradeScopeController(controller)
+        return controller
+      }
+    }
+
     function markHostLoopback(remote) {
       if (!remote || !remote.$host) return
       var host = remote.$host
@@ -358,7 +401,11 @@ window.__ModuleLoader__.load({
       upgradeController(ctx.get('locale'))
       upgradeController(ctx.get('theme'))
       // Subscribe existing scopes before the mirror publishes its first view.
-      upgradeMirror(ctx.get('settingsScope'))
+      var settingsScope = ctx.get('settingsScope')
+      upgradeMirror(settingsScope)
+      // Scopes bound after this point (the plugin-configuration cards) are
+      // upgraded on bind, since they freeze persistence="memory" at construction.
+      interceptBind(settingsScope)
       installConfigViewer(ctx)
     }
 
